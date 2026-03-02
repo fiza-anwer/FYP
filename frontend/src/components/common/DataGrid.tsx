@@ -22,8 +22,9 @@ type DataGridProps<T> = {
 };
 
 const thClass =
-  "px-4 py-3 text-xs font-semibold tracking-wider text-left text-gray-600 uppercase dark:text-gray-300";
-const tdClass = "px-4 py-3 text-sm text-gray-800 dark:text-gray-200";
+  "px-4 py-3 text-xs font-semibold tracking-wider text-left text-gray-600 uppercase whitespace-nowrap dark:text-gray-300";
+const tdClass =
+  "px-4 py-3 text-sm text-gray-800 align-middle dark:text-gray-200";
 const trBorder = "border-b border-gray-200 last:border-b-0 dark:border-gray-700";
 
 function DataGrid<T>({
@@ -53,13 +54,13 @@ function DataGrid<T>({
   return (
     <div
       className={
-        "overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800/50 " +
+        "overflow-hidden rounded-2xl border border-gray-200/80 bg-white shadow-md dark:border-gray-800 dark:bg-gray-900/40 " +
         className
       }
     >
       <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-          <thead className="bg-gray-50 dark:bg-gray-800">
+        <table className="min-w-full divide-y divide-gray-200 text-sm dark:divide-gray-700">
+          <thead className="bg-gray-50/80 backdrop-blur-sm sticky top-0 z-10 dark:bg-gray-900/80">
             <tr>
               {selectable && (
                 <th className={thClass + " w-10"}>
@@ -84,7 +85,7 @@ function DataGrid<T>({
               ))}
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+          <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
             {loading ? (
               <tr>
                 <td
@@ -104,12 +105,20 @@ function DataGrid<T>({
                 </td>
               </tr>
             ) : (
-              data.map((row) => {
+              data.map((row, index) => {
                 const id = keyExtractor(row);
+                const zebra =
+                  index % 2 === 0
+                    ? "bg-white dark:bg-gray-900/40"
+                    : "bg-gray-50/60 dark:bg-gray-900/20";
                 return (
                 <tr
                   key={id}
-                  className={"bg-white dark:bg-gray-800/30 hover:bg-gray-50 dark:hover:bg-gray-800/50 " + trBorder}
+                  className={
+                    zebra +
+                    " hover:bg-gray-100 dark:hover:bg-gray-800/60 transition-colors " +
+                    trBorder
+                  }
                 >
                   {selectable && (
                     <td className={tdClass}>

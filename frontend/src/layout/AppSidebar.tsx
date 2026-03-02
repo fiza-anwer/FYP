@@ -28,13 +28,19 @@ const tenantNavItems: NavItem[] = [
   },
   {
     icon: <BoxCubeIcon />,
-    name: "Orders",
-    path: "/orders",
+    name: "Order management",
+    subItems: [
+      { name: "Orders", path: "/orders", pro: false },
+      { name: "Consignments", path: "/consignments", pro: false },
+    ],
   },
   {
     icon: <BoxIcon />,
-    name: "Consignments",
-    path: "/consignments",
+    name: "Product management",
+    subItems: [
+      { name: "Products", path: "/products", pro: false },
+      { name: "Product operations", path: "/products/operations", pro: false },
+    ],
   },
   {
     icon: <PlugInIcon />,

@@ -191,6 +191,22 @@ export type Consignment = {
   updated_at?: string;
 };
 
+export type Product = {
+  id: string;
+  company_id: string | null;
+  company_name?: string | null;
+  external_id?: string | null;
+  title: string;
+  sku?: string | null;
+  product_type?: string | null;
+  status?: string;
+  source?: string;
+  price?: number | null;
+  variant_count?: number;
+  created_at?: string;
+  updated_at?: string;
+};
+
 export type CarrierIntegration = {
   id: string;
   carrier_id: string;
@@ -312,4 +328,36 @@ export const tenantApi = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  getProducts: (params?: { company_id?: string }) => {
+    const q = params?.company_id ? `?company_id=${encodeURIComponent(params.company_id)}` : "";
+    return api<{ products: Product[] }>(`/api/tenant/products${q}`);
+  },
+  createProduct: (body: {
+    title: string;
+    sku?: string;
+    product_type?: string;
+    price?: number;
+    status?: string;
+    source?: string;
+  }) =>
+    api<Product>("/api/tenant/products", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  updateProduct: (
+    id: string,
+    body: {
+      title?: string;
+      sku?: string;
+      product_type?: string;
+      price?: number;
+      status?: string;
+    }
+  ) =>
+    api<Product>(`/api/tenant/products/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+  deleteProduct: (id: string) =>
+    api<{ message: string }>(`/api/tenant/products/${id}`, { method: "DELETE" }),
 };
