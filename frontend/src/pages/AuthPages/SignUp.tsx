@@ -1,13 +1,28 @@
+import { useEffect } from "react";
+import { useNavigate } from "react-router";
 import PageMeta from "../../components/common/PageMeta";
 import AuthLayout from "./AuthPageLayout";
 import SignUpForm from "../../components/auth/SignUpForm";
+import { useAuth } from "../../context/AuthContext";
+import { getToken } from "../../api/client";
 
 export default function SignUp() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const token = getToken();
+  useEffect(() => {
+    if (token && user) {
+      if (user.role === "superadmin") navigate("/superadmin/tenants", { replace: true });
+      else navigate("/", { replace: true });
+    }
+  }, [token, user, navigate]);
+
+  if (token && user) return null;
   return (
     <>
       <PageMeta
-        title="React.js SignUp Dashboard | TailAdmin - Next.js Admin Dashboard Template"
-        description="This is React.js SignUp Tables Dashboard page for TailAdmin - React.js Tailwind CSS Admin Dashboard Template"
+        title="Sign Up | UniSell"
+        description="Create your UniSell account"
       />
       <AuthLayout>
         <SignUpForm />

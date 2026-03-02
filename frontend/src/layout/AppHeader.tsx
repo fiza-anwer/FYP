@@ -2,14 +2,26 @@ import { useEffect, useRef, useState } from "react";
 
 import { Link } from "react-router";
 import { useSidebar } from "../context/SidebarContext";
+import { useAuth } from "../context/AuthContext";
 import { ThemeToggleButton } from "../components/common/ThemeToggleButton";
-import NotificationDropdown from "../components/header/NotificationDropdown";
 import UserDropdown from "../components/header/UserDropdown";
+
+function formatTenantName(name: string | undefined): string {
+  if (!name) return "";
+  return name
+    .replace(/_/g, " ")
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(" ");
+}
 
 const AppHeader: React.FC = () => {
   const [isApplicationMenuOpen, setApplicationMenuOpen] = useState(false);
 
   const { isMobileOpen, toggleSidebar, toggleMobileSidebar } = useSidebar();
+  const { user, isSuperadmin } = useAuth();
+  const displayName = user?.tenant_name ? formatTenantName(user.tenant_name) : isSuperadmin ? "UniSell" : "";
 
   const handleToggle = () => {
     if (window.innerWidth >= 1024) {
@@ -83,17 +95,17 @@ const AppHeader: React.FC = () => {
             {/* Cross Icon */}
           </button>
 
-          <Link to="/" className="lg:hidden">
-            <img
-              className="dark:hidden"
-              src="./images/logo/logo.svg"
-              alt="Logo"
-            />
-            <img
-              className="hidden dark:block"
-              src="./images/logo/logo-dark.svg"
-              alt="Logo"
-            />
+          <Link to="/" className="lg:hidden flex items-center min-w-0">
+            {displayName ? (
+              <span className="text-3xl font-bold truncate text-gray-900 dark:text-white">
+                {displayName}
+              </span>
+            ) : (
+              <>
+                <img className="dark:hidden" src="./images/logo/logo.svg" alt="Logo" />
+                <img className="hidden dark:block" src="./images/logo/logo-dark.svg" alt="Logo" />
+              </>
+            )}
           </Link>
 
           <button
@@ -157,11 +169,7 @@ const AppHeader: React.FC = () => {
           } items-center justify-between w-full gap-4 px-5 py-4 lg:flex shadow-theme-md lg:justify-end lg:px-0 lg:shadow-none`}
         >
           <div className="flex items-center gap-2 2xsm:gap-3">
-            {/* <!-- Dark Mode Toggler --> */}
             <ThemeToggleButton />
-            {/* <!-- Dark Mode Toggler --> */}
-            <NotificationDropdown />
-            {/* <!-- Notification Menu Area --> */}
           </div>
           {/* <!-- User Area --> */}
           <UserDropdown />
