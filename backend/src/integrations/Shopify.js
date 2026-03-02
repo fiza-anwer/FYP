@@ -70,6 +70,55 @@ export class ShopifyIntegration {
   }
 
   /**
+   * Fetch products from Shopify store. Returns array of normalized product objects.
+   * @param {Object} credentials - { shop_domain, access_token } or similar.
+   * @returns {Promise<Array<{ external_id: string, title: string, sku?: string, price?: number, product_type?: string, status?: string, source?: string, raw: object, variants?: Array<{ id: string, sku?: string, title?: string, price?: number, inventory_quantity?: number }> }>>}
+   */
+  static async fetchProducts(credentials) {
+    const { shop_domain, access_token } = normalizeShopifyCredentials(credentials);
+    if (!shop_domain || !access_token) {
+      throw new Error(
+        "Shopify credentials missing: need shop_domain (or shop) and access_token (or x-shopify-token)"
+      );
+    }
+    const url = `https://${shop_domain}/admin/api/${SHOPIFY_API_VERSION}/products.json?limit=250`;
+    const res = await fetch(url, {
+      method: "GET",
+      headers: {
+        "X-Shopify-Access-Token": access_token,
+        "Content-Type": "application/json",
+      },
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Shopify products API error ${res.status}: ${text.slice(0, 200)}`);
+    }
+    const data = await res.json();
+    const products = data.products || [];
+    return products.map((p) => {
+      const variants = Array.isArray(p.variants) ? p.variants : [];
+      const first = variants[0] || {};
+      return {
+        external_id: String(p.id),
+        title: p.title || "",
+        sku: first.sku || "",
+        price: first.price ? parseFloat(first.price) || 0 : undefined,
+        product_type: p.product_type || "",
+        status: p.status || "active",
+        source: "shopify",
+        raw: p,
+        variants: variants.map((v) => ({
+          id: v.id,
+          sku: v.sku,
+          title: v.title,
+          price: v.price ? parseFloat(v.price) || 0 : undefined,
+          inventory_quantity: v.inventory_quantity,
+        })),
+      };
+    });
+  }
+
+  /**
    * Create a fulfillment for an order with tracking (dispatch to channel).
    * @param {Object} credentials - { shop_domain: string, access_token: string }
    * @param {string} shopifyOrderId - Shopify order id (external_id)

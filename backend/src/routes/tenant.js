@@ -430,6 +430,196 @@ router.get("/orders", async (req, res) => {
   }
 });
 
+// ---------- Products ----------
+
+/** List products - optional ?company_id= filter */
+router.get("/products", async (req, res) => {
+  try {
+    const tenantName = req.tenantName;
+    const companyId = req.query.company_id;
+    if (!(await tenantDbExists(tenantName))) {
+      return res.json({ products: [] });
+    }
+    const tenantDb = await getTenantDb(tenantName);
+    const companiesColl = tenantDb.collection("companies");
+    const filter = {};
+    if (companyId) {
+      try {
+        filter.company_id = new ObjectId(companyId);
+      } catch {
+        return res.status(400).json({ error: "Invalid company_id" });
+      }
+    }
+    const products = await tenantDb
+      .collection("products")
+      .find(filter)
+      .sort({ created_at: -1 })
+      .limit(500)
+      .toArray();
+    const list = await Promise.all(
+      products.map(async (p) => {
+        let company_name = null;
+        if (p.company_id) {
+          const company = await companiesColl.findOne({ _id: p.company_id });
+          company_name = company?.name || null;
+        }
+        return {
+          id: p._id.toString(),
+          company_id: p.company_id ? p.company_id.toString() : null,
+          company_name,
+          external_id: p.external_id || null,
+          title: p.title || "",
+          sku: p.sku || "",
+          product_type: p.product_type || "",
+          status: p.status || "active",
+          price: p.price,
+          source: p.source,
+          variant_count: typeof p.variant_count === "number" ? p.variant_count : Array.isArray(p.variants) ? p.variants.length : 0,
+          created_at: p.created_at,
+          updated_at: p.updated_at,
+        };
+      })
+    );
+    return res.json({ products: list });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
+/** Create product (local product managed in UniSell) */
+router.post("/products", async (req, res) => {
+  try {
+    const tenantName = req.tenantName;
+    if (!(await tenantDbExists(tenantName))) {
+      return res.status(400).json({ error: "Tenant has no data" });
+    }
+    const { title, sku, product_type, price, status, source } = req.body || {};
+    if (!title || typeof title !== "string") {
+      return res.status(400).json({ error: "title is required" });
+    }
+    const tenantDb = await getTenantDb(tenantName);
+    const now = new Date();
+    const doc = {
+      company_id: null,
+      external_id: null,
+      title: title.trim(),
+      sku: sku ? String(sku).trim() : "",
+      product_type: product_type ? String(product_type).trim() : "",
+      status: status ? String(status).trim() : "active",
+      price: typeof price === "number" ? price : price ? Number(price) || null : null,
+      source: source ? String(source).trim() : "local",
+      variants: [],
+      variant_count: 0,
+      created_at: now,
+      updated_at: now,
+    };
+    const result = await tenantDb.collection("products").insertOne(doc);
+    const created = { ...doc, id: result.insertedId.toString() };
+    return res.status(201).json({
+      id: created.id,
+      company_id: created.company_id,
+      company_name: null,
+      external_id: created.external_id,
+      title: created.title,
+      sku: created.sku,
+      product_type: created.product_type,
+      status: created.status,
+      price: created.price,
+      source: created.source,
+      variant_count: created.variant_count,
+      created_at: created.created_at,
+      updated_at: created.updated_at,
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
+/** Update product */
+router.put("/products/:id", async (req, res) => {
+  try {
+    const tenantName = req.tenantName;
+    const { id } = req.params;
+    let oid;
+    try {
+      oid = new ObjectId(id);
+    } catch {
+      return res.status(400).json({ error: "Invalid id" });
+    }
+    if (!(await tenantDbExists(tenantName))) {
+      return res.status(400).json({ error: "Tenant has no data" });
+    }
+    const { title, sku, product_type, price, status } = req.body || {};
+    const update = { updated_at: new Date() };
+    if (title !== undefined) update.title = String(title).trim();
+    if (sku !== undefined) update.sku = String(sku).trim();
+    if (product_type !== undefined) update.product_type = String(product_type).trim();
+    if (status !== undefined) update.status = String(status).trim();
+    if (price !== undefined) {
+      update.price = typeof price === "number" ? price : Number(price) || null;
+    }
+    const tenantDb = await getTenantDb(tenantName);
+    const coll = tenantDb.collection("products");
+    const result = await coll.updateOne({ _id: oid }, { $set: update });
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ error: "Product not found" });
+    }
+    const p = await coll.findOne({ _id: oid });
+    const companiesColl = tenantDb.collection("companies");
+    let company_name = null;
+    if (p.company_id) {
+      const company = await companiesColl.findOne({ _id: p.company_id });
+      company_name = company?.name || null;
+    }
+    return res.json({
+      id: p._id.toString(),
+      company_id: p.company_id ? p.company_id.toString() : null,
+      company_name,
+      external_id: p.external_id || null,
+      title: p.title || "",
+      sku: p.sku || "",
+      product_type: p.product_type || "",
+      status: p.status || "active",
+      price: p.price,
+      source: p.source,
+      variant_count: typeof p.variant_count === "number" ? p.variant_count : Array.isArray(p.variants) ? p.variants.length : 0,
+      created_at: p.created_at,
+      updated_at: p.updated_at,
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
+/** Delete product */
+router.delete("/products/:id", async (req, res) => {
+  try {
+    const tenantName = req.tenantName;
+    const { id } = req.params;
+    let oid;
+    try {
+      oid = new ObjectId(id);
+    } catch {
+      return res.status(400).json({ error: "Invalid id" });
+    }
+    if (!(await tenantDbExists(tenantName))) {
+      return res.status(400).json({ error: "Tenant has no data" });
+    }
+    const tenantDb = await getTenantDb(tenantName);
+    const result = await tenantDb.collection("products").deleteOne({ _id: oid });
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ error: "Product not found" });
+    }
+    return res.json({ message: "Deleted" });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
 /** Backfill company_id on orders that have no company (e.g. imported before company was set) */
 router.post("/orders/backfill-company", async (req, res) => {
   try {
