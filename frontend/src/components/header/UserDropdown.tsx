@@ -5,6 +5,7 @@ import { useAuth } from "../../context/AuthContext";
 
 function formatTenantName(name: string | undefined): string {
   if (!name) return "";
+  if (name.includes("_") && !name.includes(" ")) return name;
   return name
     .replace(/_/g, " ")
     .split(" ")
@@ -36,11 +37,16 @@ export default function UserDropdown() {
     <div className="relative">
       <button
         onClick={toggleDropdown}
-        className="flex items-center text-gray-700 dropdown-toggle dark:text-gray-400"
+        className="flex items-center gap-2 rounded-xl px-3 py-2 text-violet-600 hover:bg-violet-50 hover:text-violet-700 dark:text-violet-400 dark:hover:bg-violet-500/15 dropdown-toggle"
       >
-        <span className="block mr-1 font-medium text-theme-sm">{displayName || "User"}</span>
+        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-100 text-violet-600 dark:bg-violet-500/20 dark:text-violet-400">
+          <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+          </svg>
+        </span>
+        <span className="hidden font-medium text-theme-sm sm:block">{displayName || "User"}</span>
         <svg
-          className={`stroke-gray-500 dark:stroke-gray-400 transition-transform duration-200 ${
+          className={`h-4 w-4 transition-transform duration-200 ${
             isOpen ? "rotate-180" : ""
           }`}
           width="18"

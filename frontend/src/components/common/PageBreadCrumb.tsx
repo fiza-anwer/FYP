@@ -17,12 +17,12 @@ const PageBreadcrumb: React.FC<BreadcrumbProps> = ({ pageTitle }) => {
         <ol className="flex items-center gap-1.5">
           <li>
             <Link
-              className="inline-flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400"
+              className="inline-flex items-center gap-1.5 text-sm text-indigo-500 hover:text-indigo-600 dark:text-indigo-400 dark:hover:text-indigo-300"
               to="/"
             >
               Home
               <svg
-                className="stroke-current"
+                className="stroke-current w-4 h-4"
                 width="17"
                 height="16"
                 viewBox="0 0 17 16"

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import PageBreadcrumb from "../components/common/PageBreadCrumb";
 import PageMeta from "../components/common/PageMeta";
 import DataGrid, { type DataGridColumn } from "../components/common/DataGrid";
@@ -13,13 +13,14 @@ export default function CompanyIntegrations() {
   const [companyIntegrations, setCompanyIntegrations] = useState<CompanyIntegration[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [modalOpen, setModalOpen] = useState(false);
+  const [formVisible, setFormVisible] = useState(false);
   const [editing, setEditing] = useState<CompanyIntegration | null>(null);
   const [formCompanyId, setFormCompanyId] = useState("");
   const [formIntegrationId, setFormIntegrationId] = useState("");
   const [formCredentials, setFormCredentials] = useState<Record<string, string>>({});
   const [formActive, setFormActive] = useState(true);
   const [saving, setSaving] = useState(false);
+  const formContainerRef = useRef<HTMLDivElement>(null);
 
   const load = async () => {
     setError("");
@@ -51,7 +52,7 @@ export default function CompanyIntegrations() {
     setFormIntegrationId("");
     setFormCredentials({});
     setFormActive(true);
-    setModalOpen(true);
+    setFormVisible(true);
   };
 
   const openEdit = (ci: CompanyIntegration) => {
@@ -60,13 +61,19 @@ export default function CompanyIntegrations() {
     setFormIntegrationId(ci.integration_id);
     setFormCredentials(ci.credentials || {});
     setFormActive(ci.status === 1);
-    setModalOpen(true);
+    setFormVisible(true);
   };
 
-  const closeModal = () => {
-    setModalOpen(false);
+  const closeForm = () => {
+    setFormVisible(false);
     setEditing(null);
   };
+
+  useEffect(() => {
+    if (formVisible && formContainerRef.current) {
+      formContainerRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [formVisible]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -97,7 +104,7 @@ export default function CompanyIntegrations() {
           status: formActive ? 1 : 0,
         });
       }
-      closeModal();
+      closeForm();
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Save failed");
@@ -153,14 +160,14 @@ export default function CompanyIntegrations() {
           <button
             type="button"
             onClick={() => openEdit(row)}
-            className="text-sm font-medium text-brand-500 hover:text-brand-600 dark:text-brand-400"
+            className="text-sm font-medium text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300"
           >
             Edit
           </button>
           <button
             type="button"
             onClick={() => handleDelete(row)}
-            className="text-sm font-medium text-red-500 hover:text-red-600 dark:text-red-400"
+            className="text-sm font-medium text-rose-500 hover:text-rose-600 dark:text-rose-400 dark:hover:text-rose-300"
           >
             Delete
           </button>
@@ -170,116 +177,115 @@ export default function CompanyIntegrations() {
   ];
 
   return (
-    <>
+    <div>
       <PageMeta title="Company Integrations | UniSell" description="Manage your company integrations." />
       <PageBreadcrumb pageTitle="Company Integrations" />
-      <div className="space-y-6">
+      <div className="space-y-4">
         {error && (
           <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-400">
             {error}
           </div>
         )}
-        <div className="flex justify-end">
-          <button
-            type="button"
-            onClick={openCreate}
-            className="px-4 py-2 text-sm font-medium text-white rounded-lg bg-brand-500 hover:bg-brand-600"
-          >
-            Add integration
-          </button>
-        </div>
-        <DataGrid
-          columns={integrationColumns}
-          data={companyIntegrations}
-          keyExtractor={(ci) => ci.id}
-          emptyMessage="No integrations yet. Click Add integration to connect a store."
-          loading={loading}
-        />
-      </div>
 
-      {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={closeModal}>
-          <div className="w-full max-w-md p-6 bg-white rounded-lg shadow-xl dark:bg-gray-800" onClick={(e) => e.stopPropagation()}>
-            <h3 className="mb-4 text-lg font-semibold dark:text-white">{editing ? "Edit integration" : "Add integration"}</h3>
-            <form onSubmit={handleSave} className="space-y-4">
-              <div>
-                <Label>Company</Label>
-                <select
-                  value={formCompanyId}
-                  onChange={(e) => setFormCompanyId(e.target.value)}
-                  disabled={!!editing}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                >
-                  <option value="">Select company</option>
-                  {companies.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
-                {!editing && companies.length === 0 && (
-                  <p className="mt-2 text-sm text-amber-600 dark:text-amber-400">
-                    Create a company first from the Companies page.
-                  </p>
-                )}
-              </div>
-              <div>
-                <Label>Integration</Label>
-                <select
-                  value={formIntegrationId}
-                  onChange={(e) => {
-                    setFormIntegrationId(e.target.value);
-                    setFormCredentials({});
-                  }}
-                  disabled={!!editing}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                >
-                  <option value="">Select integration</option>
-                  {integrations.map((i) => (
-                    <option key={i.id} value={i.id}>
-                      {i.name}
-                    </option>
-                  ))}
-                </select>
-                {!editing && integrations.length === 0 && (
-                  <p className="mt-2 text-sm text-amber-600 dark:text-amber-400">
-                    No integrations available. Run the backend migration: in the backend folder run <code className="px-1 py-0.5 bg-gray-100 dark:bg-gray-700 rounded">npm run migrate</code>, then refresh this page.
-                  </p>
-                )}
-              </div>
-              {selectedSchema.length > 0 && (
-                <div className="space-y-3">
-                  <Label>Credentials</Label>
-                  {selectedSchema.map((field) => (
-                    <div key={field.key}>
-                      <Label className="text-sm">{field.label}</Label>
-                      <Input
-                        type={field.type === "password" ? "password" : "text"}
-                        placeholder={field.placeholder}
-                        value={formCredentials[field.key] ?? ""}
-                        onChange={(e) => setFormCredentials((prev) => ({ ...prev, [field.key]: e.target.value }))}
-                        className="mt-1"
-                      />
-                    </div>
-                  ))}
+        {formVisible ? (
+          <div
+            ref={formContainerRef}
+            className="overflow-hidden rounded-2xl border border-gray-200/90 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900/50"
+          >
+            <div className="border-b border-gray-100 px-6 py-4 dark:border-gray-800">
+              <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100">{editing ? "Edit integration" : "Add integration"}</h2>
+            </div>
+            <form onSubmit={handleSave} className="p-6">
+              <div className="space-y-5 max-w-2xl">
+                <div className="rounded-xl border border-gray-100 bg-gray-50/50 p-5 dark:border-gray-800 dark:bg-gray-800/30">
+                  <Label>Company</Label>
+                  <select
+                    value={formCompanyId}
+                    onChange={(e) => setFormCompanyId(e.target.value)}
+                    disabled={!!editing}
+                    className="mt-1.5 h-11 w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm text-gray-800 dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+                  >
+                    <option value="">Select company</option>
+                    {companies.map((c) => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                  {!editing && companies.length === 0 && (
+                    <p className="mt-2 text-sm text-amber-600 dark:text-amber-400">Create a company first from the Companies page.</p>
+                  )}
                 </div>
-              )}
-              <div className="flex items-center gap-2">
-                <Checkbox checked={formActive} onChange={setFormActive} />
-                <span className="text-sm text-gray-700 dark:text-gray-300">Active (order import will run for this integration)</span>
+                <div className="rounded-xl border border-gray-100 bg-gray-50/50 p-5 dark:border-gray-800 dark:bg-gray-800/30">
+                  <Label>Integration</Label>
+                  <select
+                    value={formIntegrationId}
+                    onChange={(e) => { setFormIntegrationId(e.target.value); setFormCredentials({}); }}
+                    disabled={!!editing}
+                    className="mt-1.5 h-11 w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm text-gray-800 dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+                  >
+                    <option value="">Select integration</option>
+                    {integrations.map((i) => (
+                      <option key={i.id} value={i.id}>{i.name}</option>
+                    ))}
+                  </select>
+                  {!editing && integrations.length === 0 && (
+                    <p className="mt-2 text-sm text-amber-600 dark:text-amber-400">No integrations available. Run backend migration then refresh.</p>
+                  )}
+                </div>
+                {selectedSchema.length > 0 && (
+                  <div className="rounded-xl border border-gray-100 bg-gray-50/50 p-5 dark:border-gray-800 dark:bg-gray-800/30">
+                    <Label>Credentials</Label>
+                    <div className="mt-3 space-y-3">
+                      {selectedSchema.map((field) => (
+                        <div key={field.key}>
+                          <Label className="text-sm">{field.label}</Label>
+                          <Input
+                            type={field.type === "password" ? "password" : "text"}
+                            placeholder={field.placeholder}
+                            value={formCredentials[field.key] ?? ""}
+                            onChange={(e) => setFormCredentials((prev) => ({ ...prev, [field.key]: e.target.value }))}
+                            className="mt-1.5"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <div className="flex items-center gap-2 rounded-xl border border-gray-100 bg-gray-50/50 p-5 dark:border-gray-800 dark:bg-gray-800/30">
+                  <Checkbox checked={formActive} onChange={setFormActive} />
+                  <span className="text-sm text-gray-700 dark:text-gray-300">Active (order import will run for this integration)</span>
+                </div>
               </div>
-              <div className="flex justify-end gap-2 pt-2">
-                <button type="button" onClick={closeModal} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-200 rounded-lg dark:bg-gray-600 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-500">
+              <div className="mt-8 flex justify-end gap-2 border-t border-gray-200 pt-6 dark:border-gray-700">
+                <button type="button" onClick={closeForm} className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700">
                   Cancel
                 </button>
-                <button type="submit" disabled={saving} className="px-4 py-2 text-sm font-medium text-white rounded-lg bg-brand-500 hover:bg-brand-600 disabled:opacity-50">
-                  {saving ? "Saving..." : editing ? "Update" : "Create"}
+                <button type="submit" disabled={saving} className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 disabled:opacity-60 dark:bg-indigo-500 dark:hover:bg-indigo-600">
+                  {saving ? "Saving…" : editing ? "Update" : "Create"}
                 </button>
               </div>
             </form>
           </div>
-        </div>
-      )}
-    </>
+        ) : (
+          <>
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={openCreate}
+                className="rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600"
+              >
+                Add integration
+              </button>
+            </div>
+            <DataGrid
+              columns={integrationColumns}
+              data={companyIntegrations}
+              keyExtractor={(ci) => ci.id}
+              emptyMessage="No integrations yet. Click Add integration to connect a store."
+              loading={loading}
+            />
+          </>
+        )}
+      </div>
+    </div>
   );
 }

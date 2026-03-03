@@ -191,6 +191,15 @@ export type Consignment = {
   updated_at?: string;
 };
 
+export type ProductVariant = {
+  id?: string;
+  sku?: string;
+  title?: string;
+  option1?: string;
+  price?: number;
+  inventory_quantity?: number;
+};
+
 export type Product = {
   id: string;
   company_id: string | null;
@@ -202,6 +211,15 @@ export type Product = {
   status?: string;
   source?: string;
   price?: number | null;
+  price_old?: number | null;
+  coupon?: string | null;
+  page_title?: string | null;
+  handle?: string | null;
+  description?: string | null;
+  sizes?: string[];
+  shipping_country?: string | null;
+  images?: string[];
+  variants?: ProductVariant[];
   variant_count?: number;
   created_at?: string;
   updated_at?: string;
@@ -334,11 +352,21 @@ export const tenantApi = {
   },
   createProduct: (body: {
     title: string;
+    company_id?: string;
     sku?: string;
     product_type?: string;
     price?: number;
+    price_old?: number;
+    coupon?: string;
     status?: string;
     source?: string;
+    page_title?: string;
+    handle?: string;
+    description?: string;
+    sizes?: string[];
+    shipping_country?: string;
+    images?: string[];
+    variants?: ProductVariant[];
   }) =>
     api<Product>("/api/tenant/products", {
       method: "POST",
@@ -351,7 +379,16 @@ export const tenantApi = {
       sku?: string;
       product_type?: string;
       price?: number;
+      price_old?: number;
+      coupon?: string;
       status?: string;
+      page_title?: string;
+      handle?: string;
+      description?: string;
+      sizes?: string[];
+      shipping_country?: string;
+      images?: string[];
+      variants?: ProductVariant[];
     }
   ) =>
     api<Product>(`/api/tenant/products/${id}`, {

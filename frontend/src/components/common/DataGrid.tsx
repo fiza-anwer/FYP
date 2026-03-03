@@ -23,8 +23,7 @@ type DataGridProps<T> = {
 
 const thClass =
   "px-4 py-3 text-xs font-semibold tracking-wider text-left text-gray-600 uppercase whitespace-nowrap dark:text-gray-300";
-const tdClass =
-  "px-4 py-3 text-sm text-gray-800 align-middle dark:text-gray-200";
+const tdClass = "px-4 py-3 text-sm text-gray-800 align-middle dark:text-gray-200";
 const trBorder = "border-b border-gray-200 last:border-b-0 dark:border-gray-700";
 
 function DataGrid<T>({
@@ -107,46 +106,47 @@ function DataGrid<T>({
             ) : (
               data.map((row, index) => {
                 const id = keyExtractor(row);
+                const rowKey = id != null && String(id).trim() !== "" ? String(id) : `row-${index}`;
                 const zebra =
                   index % 2 === 0
                     ? "bg-white dark:bg-gray-900/40"
                     : "bg-gray-50/60 dark:bg-gray-900/20";
                 return (
-                <tr
-                  key={id}
-                  className={
-                    zebra +
-                    " hover:bg-gray-100 dark:hover:bg-gray-800/60 transition-colors " +
-                    trBorder
-                  }
-                >
-                  {selectable && (
-                    <td className={tdClass}>
-                      <input
-                        type="checkbox"
-                        checked={set.has(id)}
-                        onChange={() => toggleOne(id)}
-                        className="rounded border-gray-300 dark:border-gray-600"
-                      />
-                    </td>
-                  )}
-                  {columns.map((col) => {
-                    const value = (row as Record<string, unknown>)[col.key];
-                    const content = col.render ? col.render(value, row) : (value as React.ReactNode);
-                    return (
-                      <td
-                        key={col.key}
-                        className={
-                          tdClass +
-                          (col.align === "right" ? " text-right" : col.align === "center" ? " text-center" : "")
-                        }
-                      >
-                        {content ?? "—"}
+                  <tr
+                    key={rowKey}
+                    className={
+                      zebra +
+                      " hover:bg-gray-100 dark:hover:bg-gray-800/60 transition-colors " +
+                      trBorder
+                    }
+                  >
+                    {selectable && (
+                      <td className={tdClass}>
+                        <input
+                          type="checkbox"
+                          checked={set.has(id)}
+                          onChange={() => toggleOne(id)}
+                          className="rounded border-gray-300 dark:border-gray-600"
+                        />
                       </td>
-                    );
-                  })}
-                </tr>
-              );
+                    )}
+                    {columns.map((col) => {
+                      const value = (row as Record<string, unknown>)[col.key];
+                      const content = col.render ? col.render(value, row) : (value as React.ReactNode);
+                      return (
+                        <td
+                          key={col.key}
+                          className={
+                            tdClass +
+                            (col.align === "right" ? " text-right" : col.align === "center" ? " text-center" : "")
+                          }
+                        >
+                          {content ?? "—"}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
               })
             )}
           </tbody>
