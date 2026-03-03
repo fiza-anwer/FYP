@@ -5,6 +5,7 @@ import { getAuthDb } from "../db/authDb.js";
 import { getTenantDb, tenantDbExists } from "../db/tenantDb.js";
 import { createConsignments } from "../services/consignmentService.js";
 import { dispatchOrders } from "../services/dispatchService.js";
+import { ShopifyIntegration } from "../integrations/Shopify.js";
 
 /** Normalize string or ObjectId to ObjectId for reliable lookups (handles both DB storage formats). */
 function toObjectId(id) {
@@ -15,6 +16,47 @@ function toObjectId(id) {
   } catch {
     return null;
   }
+}
+
+/** Return a user-friendly message for Shopify 403 write_products scope errors. */
+function friendlyShopifyWriteScopeMessage(err) {
+  const msg = err?.message != null ? String(err.message) : String(err);
+  if (msg.includes("write_products") || (msg.includes("403") && msg.includes("merchant approval"))) {
+    return (
+      "Shopify needs permission to edit products. In Shopify Admin go to Settings → Apps and sales channels → [your app] → API credentials, " +
+      "and create an Admin API access token that includes the \"Write products\" scope. Then paste that token in Setup → Company Integrations."
+    );
+  }
+  return null;
+}
+
+/** Get Shopify credentials for a company (from company_integrations). Returns null if none. */
+async function getShopifyCredentialsForCompany(tenantDb, companyId) {
+  const authDb = await getAuthDb();
+  const shopifyIntegration = await authDb.collection("integrations").findOne({ slug: "shopify" });
+  if (!shopifyIntegration) return null;
+  const shopifyId = shopifyIntegration._id.toString();
+  const shopifyOid = shopifyIntegration._id;
+  const shopifyAndActive = {
+    $or: [{ integration_id: shopifyId }, { integration_id: shopifyOid }],
+    status: 1,
+  };
+
+  if (companyId) {
+    const companyOid = toObjectId(companyId);
+    const companyIdStr = String(companyId);
+    const ci = await tenantDb.collection("company_integrations").findOne({
+      $and: [
+        { $or: [{ company_id: companyOid }, { company_id: companyIdStr }] },
+        { $or: [{ integration_id: shopifyId }, { integration_id: shopifyOid }] },
+        { status: 1 },
+      ],
+    });
+    if (ci?.credentials) return ci.credentials;
+  }
+
+  const fallback = await tenantDb.collection("company_integrations").findOne(shopifyAndActive);
+  return fallback?.credentials ?? null;
 }
 
 const router = express.Router();
@@ -252,16 +294,26 @@ router.post("/company-integrations", async (req, res) => {
     };
     const result = await companyIntegrations.insertOne(doc);
     const slug = (integration.slug || "shopify").toLowerCase();
+    const companyOid = new ObjectId(company_id);
     const ordersColl = tenantDb.collection("orders");
-    const backfill = await ordersColl.updateMany(
+    const productsColl = tenantDb.collection("products");
+    const ordersBackfill = await ordersColl.updateMany(
       {
         $or: [{ company_id: null }, { company_id: { $exists: false } }],
         source: slug,
       },
-      { $set: { company_id: new ObjectId(company_id), updated_at: new Date() } }
+      { $set: { company_id: companyOid, updated_at: new Date() } }
     );
-    if (backfill.modifiedCount > 0) {
-      console.log(`Company integration created: backfilled company_id for ${backfill.modifiedCount} orders (source=${slug})`);
+    const productsBackfill = await productsColl.updateMany(
+      {
+        $or: [{ company_id: null }, { company_id: { $exists: false } }],
+        source: slug,
+        external_id: { $exists: true, $ne: null },
+      },
+      { $set: { company_id: companyOid, updated_at: new Date() } }
+    );
+    if (ordersBackfill.modifiedCount > 0 || productsBackfill.modifiedCount > 0) {
+      console.log(`Company integration created: backfilled ${ordersBackfill.modifiedCount} orders, ${productsBackfill.modifiedCount} products (source=${slug})`);
     }
     return res.status(201).json({
       id: result.insertedId.toString(),
@@ -274,7 +326,8 @@ router.post("/company-integrations", async (req, res) => {
       status: doc.status,
       created_at: doc.created_at,
       updated_at: doc.updated_at,
-      orders_linked: backfill.modifiedCount,
+      orders_linked: ordersBackfill.modifiedCount,
+      products_linked: productsBackfill.modifiedCount,
     });
   } catch (err) {
     console.error(err);
@@ -473,7 +526,16 @@ router.get("/products", async (req, res) => {
           product_type: p.product_type || "",
           status: p.status || "active",
           price: p.price,
+          price_old: p.price_old,
+          coupon: p.coupon || "",
+          page_title: p.page_title || "",
+          handle: p.handle || "",
+          description: p.description || "",
+          sizes: Array.isArray(p.sizes) ? p.sizes : [],
+          shipping_country: p.shipping_country || "",
+          images: Array.isArray(p.images) ? p.images : [],
           source: p.source,
+          variants: Array.isArray(p.variants) ? p.variants : [],
           variant_count: typeof p.variant_count === "number" ? p.variant_count : Array.isArray(p.variants) ? p.variants.length : 0,
           created_at: p.created_at,
           updated_at: p.updated_at,
@@ -487,46 +549,104 @@ router.get("/products", async (req, res) => {
   }
 });
 
-/** Create product (local product managed in UniSell) */
+/** Create product (local or sync to Shopify when company has Shopify integration) */
 router.post("/products", async (req, res) => {
   try {
     const tenantName = req.tenantName;
     if (!(await tenantDbExists(tenantName))) {
       return res.status(400).json({ error: "Tenant has no data" });
     }
-    const { title, sku, product_type, price, status, source } = req.body || {};
+    const {
+      title, sku, product_type, price, status, source,
+      price_old, coupon, page_title, handle, description, sizes, shipping_country, images,
+      company_id: bodyCompanyId, variants: bodyVariants,
+    } = req.body || {};
     if (!title || typeof title !== "string") {
       return res.status(400).json({ error: "title is required" });
     }
     const tenantDb = await getTenantDb(tenantName);
+    const companiesColl = tenantDb.collection("companies");
+    const companyOid = bodyCompanyId ? toObjectId(bodyCompanyId) : null;
+    const variants = Array.isArray(bodyVariants) ? bodyVariants : [];
     const now = new Date();
+    let external_id = null;
+    let effectiveSource = source ? String(source).trim() : "local";
+    if (companyOid) {
+      const credentials = await getShopifyCredentialsForCompany(tenantDb, bodyCompanyId);
+      if (credentials) {
+        try {
+          const shopifyPayload = {
+            title: title.trim(),
+            description: description ? String(description).trim() : "",
+            product_type: product_type ? String(product_type).trim() : "",
+            status: status ? String(status).trim() : "active",
+            price: typeof price === "number" ? price : price != null ? Number(price) : 0,
+            variants: variants.length > 0 ? variants.map((v) => ({
+              price: v.price != null ? v.price : undefined,
+              sku: v.sku,
+              option1: v.option1 || v.title,
+            })) : undefined,
+          };
+          const created = await ShopifyIntegration.createProduct(credentials, shopifyPayload);
+          external_id = created.id;
+          effectiveSource = "shopify";
+        } catch (shopifyErr) {
+          console.error("Shopify create product failed:", shopifyErr);
+          const friendly = friendlyShopifyWriteScopeMessage(shopifyErr);
+          const msg = friendly || "Failed to create product on Shopify: " + (shopifyErr.message || "Unknown error");
+          return res.status(502).json({ error: msg });
+        }
+      }
+    }
     const doc = {
-      company_id: null,
-      external_id: null,
+      company_id: companyOid,
+      external_id,
       title: title.trim(),
       sku: sku ? String(sku).trim() : "",
       product_type: product_type ? String(product_type).trim() : "",
       status: status ? String(status).trim() : "active",
-      price: typeof price === "number" ? price : price ? Number(price) || null : null,
-      source: source ? String(source).trim() : "local",
-      variants: [],
-      variant_count: 0,
+      price: typeof price === "number" ? price : price != null ? Number(price) || null : null,
+      price_old: price_old != null ? (typeof price_old === "number" ? price_old : Number(price_old) || null) : null,
+      coupon: coupon ? String(coupon).trim() : "",
+      page_title: page_title ? String(page_title).trim() : "",
+      handle: handle ? String(handle).trim() : "",
+      description: description ? String(description).trim() : "",
+      sizes: Array.isArray(sizes) ? sizes.map((s) => String(s)) : [],
+      shipping_country: shipping_country ? String(shipping_country).trim() : "",
+      images: Array.isArray(images) ? images : [],
+      source: effectiveSource,
+      variants,
+      variant_count: variants.length,
       created_at: now,
       updated_at: now,
     };
     const result = await tenantDb.collection("products").insertOne(doc);
-    const created = { ...doc, id: result.insertedId.toString() };
+    const created = { ...doc, _id: result.insertedId, id: result.insertedId.toString() };
+    let company_name = null;
+    if (companyOid) {
+      const company = await companiesColl.findOne({ _id: companyOid });
+      company_name = company?.name || null;
+    }
     return res.status(201).json({
       id: created.id,
-      company_id: created.company_id,
-      company_name: null,
+      company_id: companyOid ? companyOid.toString() : null,
+      company_name,
       external_id: created.external_id,
       title: created.title,
       sku: created.sku,
       product_type: created.product_type,
       status: created.status,
       price: created.price,
+      price_old: created.price_old,
+      coupon: created.coupon,
+      page_title: created.page_title,
+      handle: created.handle,
+      description: created.description,
+      sizes: created.sizes,
+      shipping_country: created.shipping_country,
+      images: created.images,
       source: created.source,
+      variants: created.variants,
       variant_count: created.variant_count,
       created_at: created.created_at,
       updated_at: created.updated_at,
@@ -537,7 +657,7 @@ router.post("/products", async (req, res) => {
   }
 });
 
-/** Update product */
+/** Update product (sync to Shopify when product has external_id) */
 router.put("/products/:id", async (req, res) => {
   try {
     const tenantName = req.tenantName;
@@ -551,20 +671,77 @@ router.put("/products/:id", async (req, res) => {
     if (!(await tenantDbExists(tenantName))) {
       return res.status(400).json({ error: "Tenant has no data" });
     }
-    const { title, sku, product_type, price, status } = req.body || {};
+    const {
+      title, sku, product_type, price, status,
+      price_old, coupon, page_title, handle, description, sizes, shipping_country, images,
+      variants: bodyVariants,
+    } = req.body || {};
+    const tenantDb = await getTenantDb(tenantName);
+    const coll = tenantDb.collection("products");
+    const pBefore = await coll.findOne({ _id: oid });
+    if (!pBefore) {
+      return res.status(404).json({ error: "Product not found" });
+    }
     const update = { updated_at: new Date() };
     if (title !== undefined) update.title = String(title).trim();
     if (sku !== undefined) update.sku = String(sku).trim();
     if (product_type !== undefined) update.product_type = String(product_type).trim();
     if (status !== undefined) update.status = String(status).trim();
-    if (price !== undefined) {
-      update.price = typeof price === "number" ? price : Number(price) || null;
+    if (price !== undefined) update.price = typeof price === "number" ? price : Number(price) || null;
+    if (price_old !== undefined) update.price_old = price_old == null ? null : (typeof price_old === "number" ? price_old : Number(price_old) || null);
+    if (coupon !== undefined) update.coupon = String(coupon).trim();
+    if (page_title !== undefined) update.page_title = String(page_title).trim();
+    if (handle !== undefined) update.handle = String(handle).trim();
+    if (description !== undefined) update.description = String(description).trim();
+    if (sizes !== undefined) update.sizes = Array.isArray(sizes) ? sizes.map((s) => String(s)) : [];
+    if (shipping_country !== undefined) update.shipping_country = String(shipping_country).trim();
+    if (images !== undefined) update.images = Array.isArray(images) ? images : [];
+    if (bodyVariants !== undefined) {
+      const sanitized = Array.isArray(bodyVariants)
+        ? bodyVariants.map((v) => {
+            const o = {};
+            if (v != null && typeof v === "object") {
+              for (const k of Object.keys(v)) {
+                if (k === "id" || k === "sku" || k === "title" || k === "option1" || k === "price" || k === "inventory_quantity") {
+                  const val = v[k];
+                  if (val !== undefined && val !== null) o[k] = typeof val === "number" ? val : String(val);
+                }
+              }
+            }
+            return o;
+          })
+        : [];
+      update.variants = sanitized;
+      update.variant_count = sanitized.length;
     }
-    const tenantDb = await getTenantDb(tenantName);
-    const coll = tenantDb.collection("products");
     const result = await coll.updateOne({ _id: oid }, { $set: update });
     if (result.matchedCount === 0) {
       return res.status(404).json({ error: "Product not found" });
+    }
+    let sync_warning = null;
+    if (pBefore.external_id) {
+      const companyId = pBefore.company_id ? pBefore.company_id.toString() : null;
+      const credentials = await getShopifyCredentialsForCompany(tenantDb, companyId);
+      if (!credentials) {
+        sync_warning = "Product saved but not synced to Shopify: no Shopify connection for this product's company. Link the company in Setup → Company Integrations.";
+      } else {
+        const variantsToSync = update.variants !== undefined ? update.variants : pBefore.variants;
+        try {
+          await ShopifyIntegration.updateProduct(credentials, String(pBefore.external_id), {
+            title: update.title !== undefined ? update.title : pBefore.title,
+            description: update.description !== undefined ? update.description : pBefore.description,
+            product_type: update.product_type !== undefined ? update.product_type : pBefore.product_type,
+            status: update.status !== undefined ? update.status : pBefore.status,
+            variants: Array.isArray(variantsToSync) ? variantsToSync : [],
+          });
+        } catch (shopifyErr) {
+          console.error("Shopify update product failed:", shopifyErr.message || shopifyErr);
+          const friendly = friendlyShopifyWriteScopeMessage(shopifyErr);
+          sync_warning = friendly
+            ? "Product saved but not synced to Shopify: " + friendly
+            : "Product saved but Shopify sync failed: " + (shopifyErr.message || "Unknown error");
+        }
+      }
     }
     const p = await coll.findOne({ _id: oid });
     const companiesColl = tenantDb.collection("companies");
@@ -573,7 +750,7 @@ router.put("/products/:id", async (req, res) => {
       const company = await companiesColl.findOne({ _id: p.company_id });
       company_name = company?.name || null;
     }
-    return res.json({
+    const responsePayload = {
       id: p._id.toString(),
       company_id: p.company_id ? p.company_id.toString() : null,
       company_name,
@@ -583,18 +760,29 @@ router.put("/products/:id", async (req, res) => {
       product_type: p.product_type || "",
       status: p.status || "active",
       price: p.price,
+      price_old: p.price_old,
+      coupon: p.coupon || "",
+      page_title: p.page_title || "",
+      handle: p.handle || "",
+      description: p.description || "",
+      sizes: Array.isArray(p.sizes) ? p.sizes : [],
+      shipping_country: p.shipping_country || "",
+      images: Array.isArray(p.images) ? p.images : [],
       source: p.source,
+      variants: Array.isArray(p.variants) ? p.variants : [],
       variant_count: typeof p.variant_count === "number" ? p.variant_count : Array.isArray(p.variants) ? p.variants.length : 0,
       created_at: p.created_at,
       updated_at: p.updated_at,
-    });
+      ...(sync_warning && { sync_warning }),
+    };
+    return res.json(responsePayload);
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: "Server error" });
   }
 });
 
-/** Delete product */
+/** Delete product (and on Shopify when product has external_id) */
 router.delete("/products/:id", async (req, res) => {
   try {
     const tenantName = req.tenantName;
@@ -609,7 +797,26 @@ router.delete("/products/:id", async (req, res) => {
       return res.status(400).json({ error: "Tenant has no data" });
     }
     const tenantDb = await getTenantDb(tenantName);
-    const result = await tenantDb.collection("products").deleteOne({ _id: oid });
+    const coll = tenantDb.collection("products");
+    const p = await coll.findOne({ _id: oid });
+    if (!p) {
+      return res.status(404).json({ error: "Product not found" });
+    }
+    if (p.external_id) {
+      const companyId = p.company_id ? p.company_id.toString() : null;
+      const credentials = await getShopifyCredentialsForCompany(tenantDb, companyId);
+      if (credentials) {
+        try {
+          await ShopifyIntegration.deleteProduct(credentials, String(p.external_id));
+        } catch (shopifyErr) {
+          console.error("Shopify delete product failed:", shopifyErr);
+          const friendly = friendlyShopifyWriteScopeMessage(shopifyErr);
+          const msg = friendly || "Failed to delete product on Shopify: " + (shopifyErr.message || "Unknown error");
+          return res.status(502).json({ error: msg });
+        }
+      }
+    }
+    const result = await coll.deleteOne({ _id: oid });
     if (result.deletedCount === 0) {
       return res.status(404).json({ error: "Product not found" });
     }
@@ -641,6 +848,38 @@ router.post("/orders/backfill-company", async (req, res) => {
       {
         $or: [{ company_id: null }, { company_id: { $exists: false } }],
         source: source.trim(),
+      },
+      { $set: { company_id: new ObjectId(company_id), updated_at: new Date() } }
+    );
+    return res.json({ updated: result.modifiedCount });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
+/** Backfill company_id on products that have source (e.g. shopify) but no company (same as orders backfill) */
+router.post("/products/backfill-company", async (req, res) => {
+  try {
+    const tenantName = req.tenantName;
+    const { company_id, source } = req.body || {};
+    if (!company_id || !source || typeof source !== "string") {
+      return res.status(400).json({ error: "company_id and source are required" });
+    }
+    if (!(await tenantDbExists(tenantName))) {
+      return res.status(400).json({ error: "Tenant has no data" });
+    }
+    const tenantDb = await getTenantDb(tenantName);
+    const company = await tenantDb.collection("companies").findOne({ _id: new ObjectId(company_id) });
+    if (!company) {
+      return res.status(400).json({ error: "Company not found" });
+    }
+    const productsColl = tenantDb.collection("products");
+    const result = await productsColl.updateMany(
+      {
+        $or: [{ company_id: null }, { company_id: { $exists: false } }],
+        source: source.trim(),
+        external_id: { $exists: true, $ne: null },
       },
       { $set: { company_id: new ObjectId(company_id), updated_at: new Date() } }
     );

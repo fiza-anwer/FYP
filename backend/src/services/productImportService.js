@@ -81,6 +81,25 @@ export async function runProductImportForTenant(tenantName) {
           );
         }
       }
+      // Backfill: assign company_id to any products from this source that still have none (e.g. imported before company was linked)
+      const companyOid = ci.company_id
+        ? typeof ci.company_id === "string"
+          ? new ObjectId(ci.company_id)
+          : ci.company_id
+        : null;
+      if (companyOid) {
+        const backfill = await productsColl.updateMany(
+          {
+            source: slug,
+            external_id: { $exists: true, $ne: null },
+            $or: [{ company_id: null }, { company_id: { $exists: false } }],
+          },
+          { $set: { company_id: companyOid, updated_at: new Date() } }
+        );
+        if (backfill.modifiedCount > 0) {
+          totalImported += backfill.modifiedCount;
+        }
+      }
     } catch (err) {
       errors.push({
         company_integration_id: ci._id.toString(),

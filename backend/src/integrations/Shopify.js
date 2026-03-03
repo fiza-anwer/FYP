@@ -111,6 +111,7 @@ export class ShopifyIntegration {
           id: v.id,
           sku: v.sku,
           title: v.title,
+          option1: v.option1,
           price: v.price ? parseFloat(v.price) || 0 : undefined,
           inventory_quantity: v.inventory_quantity,
         })),
@@ -200,5 +201,132 @@ export class ShopifyIntegration {
     }
     const createData = await createRes.json();
     return { success: true, fulfillment_id: createData.fulfillment?.id };
+  }
+
+  /**
+   * Create a product on Shopify.
+   * @param {Object} credentials - { shop_domain, access_token }
+   * @param {Object} productData - { title, body_html?, vendor?, product_type?, status?, variants?: [{ price?, sku?, option1? }] }
+   * @returns {Promise<{ id: string }>} Shopify product id
+   */
+  static async createProduct(credentials, productData) {
+    const { shop_domain, access_token } = normalizeShopifyCredentials(credentials);
+    if (!shop_domain || !access_token) {
+      throw new Error("Shopify credentials missing: need shop_domain and access_token");
+    }
+    const base = `https://${shop_domain}/admin/api/${SHOPIFY_API_VERSION}`;
+    const headers = {
+      "X-Shopify-Access-Token": access_token,
+      "Content-Type": "application/json",
+    };
+    const variants = Array.isArray(productData.variants) ? productData.variants : [];
+    const productPayload = {
+      title: productData.title || "Untitled",
+      body_html: productData.body_html || productData.description || "",
+      product_type: productData.product_type || "",
+      status: productData.status === "active" || productData.status === "published" ? "active" : "draft",
+      variants: variants.length > 0
+        ? variants.map((v) => ({
+            price: v.price != null ? String(v.price) : undefined,
+            sku: v.sku || undefined,
+            option1: v.option1 || v.title || undefined,
+          }))
+        : [{ price: productData.price != null ? String(productData.price) : "0" }],
+    };
+    const res = await fetch(`${base}/products.json`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ product: productPayload }),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Shopify create product error ${res.status}: ${text.slice(0, 300)}`);
+    }
+    const data = await res.json();
+    const id = data.product?.id;
+    if (!id) throw new Error("Shopify did not return product id");
+    return { id: String(id) };
+  }
+
+  /**
+   * Update a product on Shopify (product-level fields and/or variants).
+   * @param {Object} credentials - { shop_domain, access_token }
+   * @param {string} shopifyProductId - Shopify product id (external_id)
+   * @param {Object} productData - { title?, body_html?, product_type?, status?, variants?: Array<{ id: string, sku?, price?, option1? }> }
+   */
+  static async updateProduct(credentials, shopifyProductId, productData) {
+    const { shop_domain, access_token } = normalizeShopifyCredentials(credentials);
+    if (!shop_domain || !access_token) {
+      throw new Error("Shopify credentials missing: need shop_domain and access_token");
+    }
+    if (!shopifyProductId) throw new Error("shopifyProductId is required");
+    const base = `https://${shop_domain}/admin/api/${SHOPIFY_API_VERSION}`;
+    const headers = {
+      "X-Shopify-Access-Token": access_token,
+      "Content-Type": "application/json",
+    };
+
+    // Update each variant that has a Shopify variant id (so changes show on store)
+    const variants = Array.isArray(productData.variants) ? productData.variants : [];
+    for (const v of variants) {
+      const variantId = v.id != null ? String(v.id) : null;
+      if (!variantId) continue;
+      const variantPayload = {};
+      if (v.price !== undefined && v.price !== null) variantPayload.price = String(v.price);
+      if (v.sku !== undefined && v.sku !== null) variantPayload.sku = String(v.sku);
+      if (v.option1 !== undefined && v.option1 !== null) variantPayload.option1 = String(v.option1);
+      if (Object.keys(variantPayload).length === 0) continue;
+      const vRes = await fetch(`${base}/variants/${variantId}.json`, {
+        method: "PUT",
+        headers,
+        body: JSON.stringify({ variant: variantPayload }),
+      });
+      if (!vRes.ok) {
+        const text = await vRes.text();
+        throw new Error(`Shopify update variant ${variantId} error ${vRes.status}: ${text.slice(0, 200)}`);
+      }
+    }
+
+    // Update product-level fields
+    const productPayload = {};
+    if (productData.title !== undefined) productPayload.title = productData.title;
+    if (productData.body_html !== undefined) productPayload.body_html = productData.body_html;
+    if (productData.description !== undefined) productPayload.body_html = productData.description;
+    if (productData.product_type !== undefined) productPayload.product_type = productData.product_type;
+    if (productData.status !== undefined)
+      productPayload.status = productData.status === "active" || productData.status === "published" ? "active" : "draft";
+    if (Object.keys(productPayload).length === 0) return;
+    const res = await fetch(`${base}/products/${shopifyProductId}.json`, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({ product: productPayload }),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Shopify update product error ${res.status}: ${text.slice(0, 300)}`);
+    }
+  }
+
+  /**
+   * Delete a product on Shopify.
+   * @param {Object} credentials - { shop_domain, access_token }
+   * @param {string} shopifyProductId - Shopify product id (external_id)
+   */
+  static async deleteProduct(credentials, shopifyProductId) {
+    const { shop_domain, access_token } = normalizeShopifyCredentials(credentials);
+    if (!shop_domain || !access_token) {
+      throw new Error("Shopify credentials missing: need shop_domain and access_token");
+    }
+    if (!shopifyProductId) throw new Error("shopifyProductId is required");
+    const base = `https://${shop_domain}/admin/api/${SHOPIFY_API_VERSION}`;
+    const headers = { "X-Shopify-Access-Token": access_token };
+    const res = await fetch(`${base}/products/${shopifyProductId}.json`, {
+      method: "DELETE",
+      headers,
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Shopify delete product error ${res.status}: ${text.slice(0, 300)}`);
+    }
   }
 }
