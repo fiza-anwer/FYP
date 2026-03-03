@@ -17,6 +17,8 @@ type NavItem = {
   name: string;
   icon: React.ReactNode;
   path?: string;
+  iconColor: string;
+  iconColorActive: string;
   subItems?: { name: string; path: string; pro?: boolean; new?: boolean }[];
 };
 
@@ -24,11 +26,15 @@ const tenantNavItems: NavItem[] = [
   {
     icon: <GridIcon />,
     name: "Dashboard",
+    iconColor: "text-teal-500 group-hover:text-teal-600 dark:text-teal-400",
+    iconColorActive: "text-teal-600 dark:text-teal-400",
     subItems: [{ name: "Ecommerce", path: "/", pro: false }],
   },
   {
     icon: <BoxCubeIcon />,
     name: "Order management",
+    iconColor: "text-pink-500 group-hover:text-pink-600 dark:text-pink-400",
+    iconColorActive: "text-pink-600 dark:text-pink-400",
     subItems: [
       { name: "Orders", path: "/orders", pro: false },
       { name: "Consignments", path: "/consignments", pro: false },
@@ -37,14 +43,15 @@ const tenantNavItems: NavItem[] = [
   {
     icon: <BoxIcon />,
     name: "Product management",
-    subItems: [
-      { name: "Products", path: "/products", pro: false },
-      { name: "Product operations", path: "/products/operations", pro: false },
-    ],
+    iconColor: "text-amber-500 group-hover:text-amber-600 dark:text-amber-400",
+    iconColorActive: "text-amber-600 dark:text-amber-400",
+    subItems: [{ name: "Products", path: "/products", pro: false }],
   },
   {
     icon: <PlugInIcon />,
     name: "Setup",
+    iconColor: "text-violet-500 group-hover:text-violet-600 dark:text-violet-400",
+    iconColorActive: "text-violet-600 dark:text-violet-400",
     subItems: [
       { name: "Companies", path: "/companies", pro: false },
       { name: "Company Integrations", path: "/company-integrations", pro: false },
@@ -59,16 +66,21 @@ const superadminNavItems: NavItem[] = [
     icon: <GridIcon />,
     name: "Dashboard",
     path: "/",
+    iconColor: "text-teal-500 group-hover:text-teal-600 dark:text-teal-400",
+    iconColorActive: "text-teal-600 dark:text-teal-400",
   },
   {
     icon: <TableIcon />,
     name: "Tenant Management",
     path: "/superadmin/tenants",
+    iconColor: "text-violet-500 group-hover:text-violet-600 dark:text-violet-400",
+    iconColorActive: "text-violet-600 dark:text-violet-400",
   },
 ];
 
 function formatTenantName(name: string | undefined): string {
   if (!name) return "";
+  if (name.includes("_") && !name.includes(" ")) return name;
   return name
     .replace(/_/g, " ")
     .split(" ")
@@ -164,10 +176,10 @@ const AppSidebar: React.FC = () => {
               }`}
             >
               <span
-                className={`menu-item-icon-size  ${
+                className={`menu-item-icon-size ${
                   openSubmenu?.type === menuType && openSubmenu?.index === index
-                    ? "menu-item-icon-active"
-                    : "menu-item-icon-inactive"
+                    ? nav.iconColorActive
+                    : nav.iconColor
                 }`}
               >
                 {nav.icon}
@@ -180,7 +192,7 @@ const AppSidebar: React.FC = () => {
                   className={`ml-auto w-5 h-5 transition-transform duration-200 ${
                     openSubmenu?.type === menuType &&
                     openSubmenu?.index === index
-                      ? "rotate-180 text-brand-500"
+                      ? "rotate-180 text-indigo-600 dark:text-indigo-400"
                       : ""
                   }`}
                 />
@@ -196,9 +208,7 @@ const AppSidebar: React.FC = () => {
               >
                 <span
                   className={`menu-item-icon-size ${
-                    isActive(nav.path)
-                      ? "menu-item-icon-active"
-                      : "menu-item-icon-inactive"
+                    isActive(nav.path) ? nav.iconColorActive : nav.iconColor
                   }`}
                 >
                   {nav.icon}

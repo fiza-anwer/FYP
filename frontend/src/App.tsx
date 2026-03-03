@@ -14,7 +14,6 @@ import CarrierIntegrations from "./pages/CarrierIntegrations";
 import CarrierIntegrationServices from "./pages/CarrierIntegrationServices";
 import Consignments from "./pages/Consignments";
 import Products from "./pages/Products";
-import ProductOperations from "./pages/ProductOperations";
 import SuperadminTenants from "./pages/Superadmin/Tenants";
 import { setOnUnauthorized } from "./api/client";
 import { useAuth } from "./context/AuthContext";
@@ -44,7 +43,6 @@ function AppRoutes() {
           <Route path="/carrier-integrations" element={<CarrierIntegrations />} />
           <Route path="/carrier-integration-services" element={<CarrierIntegrationServices />} />
           <Route path="/products" element={<Products />} />
-          <Route path="/products/operations" element={<ProductOperations />} />
           <Route path="/superadmin/tenants" element={<SuperadminTenants />} />
         </Route>
       </Route>

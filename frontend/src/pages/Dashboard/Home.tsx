@@ -7,6 +7,7 @@ import { BoxIconLine, GroupIcon } from "../../icons";
 
 function formatTenantName(name: string | undefined): string {
   if (!name) return "";
+  if (name.includes("_") && !name.includes(" ")) return name;
   return name
     .replace(/_/g, " ")
     .split(" ")
@@ -159,7 +160,7 @@ export default function Home() {
               <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">Tenants</h3>
               <Link
                 to="/superadmin/tenants"
-                className="text-sm font-medium text-brand-500 hover:text-brand-600 dark:text-brand-400"
+                className="text-sm font-medium text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300"
               >
                 Manage tenants
               </Link>
@@ -255,7 +256,7 @@ export default function Home() {
             <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">Recent orders</h3>
             <Link
               to="/orders"
-              className="text-sm font-medium text-brand-500 hover:text-brand-600 dark:text-brand-400"
+              className="text-sm font-medium text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300"
             >
               View all orders
             </Link>
